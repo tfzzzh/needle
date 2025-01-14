@@ -11,7 +11,7 @@ pip install git+https://github.com/locuslab/mugrade.git
 ### Install the package
 Install the package in editable mode:
 ```
-pip install -e .
+python setup.py develop
 ```
 ### Run Tests
 To run the tests, use:
