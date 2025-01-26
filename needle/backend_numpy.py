@@ -50,6 +50,7 @@ class CPUDevice(Device):
 
 def cpu():
     """Return cpu device"""
+    raise Exception("should not use it")
     return CPUDevice()
 
 

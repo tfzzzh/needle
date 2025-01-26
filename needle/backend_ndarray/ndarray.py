@@ -3,6 +3,7 @@ import math
 import builtins
 from functools import reduce
 import numpy as np
+from typing import List
 from . import ndarray_backend_numpy
 from . import ndarray_backend_cpu
 
@@ -466,8 +467,26 @@ class NDArray:
         """
         out = NDArray.make(self.shape, device=self.device)
         if isinstance(other, NDArray):
-            assert self.shape == other.shape, "operation needs two equal-sized arrays"
-            ewise_func(self.compact()._handle, other.compact()._handle, out._handle)
+            # assert self.shape == other.shape, "operation needs two equal-sized arrays"
+            if self.shape == other.shape:
+                ewise_func(self.compact()._handle, other.compact()._handle, out._handle)
+            
+            elif self.ndim == 0:
+                view = NDArray.make(shape=(1,), device=self.device)
+                view.fill(self.numpy().item())
+                view = view.broadcast_to(other.shape)
+                out = NDArray.make(view.shape, device=self.device)
+                ewise_func(view.compact()._handle, other.compact()._handle, out._handle)
+            
+            elif other.ndim == 0:
+                view = NDArray.make(shape=(1,), device=self.device)
+                view.fill(other.numpy().item())
+                view = view.broadcast_to(self.shape)
+                ewise_func(self.compact()._handle, view.compact()._handle, out._handle)
+            
+            else:
+                raise NotImplementedError
+
         else:
             scalar_func(self.compact()._handle, other, out._handle)
         return out
@@ -563,6 +582,13 @@ class NDArray:
         The GPU (and numpy) versions don't have any tiled version (or rather,
         the GPU version will just work natively by tiling any input size).
         """
+        # special case: use numpy device
+        if self.device.name == 'cpu_numpy':
+            arr_left = self.compact()._handle.array.reshape(*self.shape)
+            arr_right = other.compact()._handle.array.reshape(*other.shape)
+            out = arr_left.astype('float64') @ arr_right
+            return NDArray(out, self.device)
+
 
         assert self.ndim == 2 and other.ndim == 2
         assert self.shape[1] == other.shape[0]
@@ -600,6 +626,34 @@ class NDArray:
             return out
 
     ### Reductions, i.e., sum/max over all element or over given axis
+    # def reduce_view_out(self, axis, keepdims=False):
+    #     """ Return a view to the array set up for reduction functions and output array. """
+    #     if isinstance(axis, tuple) and not axis:
+    #         raise ValueError("Empty axis in reduce")
+
+    #     if axis is None:
+    #         view = self.compact().reshape((1,) * (self.ndim - 1) + (prod(self.shape),))
+    #         #out = NDArray.make((1,) * self.ndim, device=self.device)
+    #         out = NDArray.make((1,), device=self.device)
+
+    #     else:
+    #         if isinstance(axis, (tuple, list)):
+    #             assert len(axis) == 1, "Only support reduction over a single axis"
+    #             axis = axis[0]
+
+    #         view = self.permute(
+    #             tuple([a for a in range(self.ndim) if a != axis]) + (axis,)
+    #         )
+    #         out = NDArray.make(
+    #             tuple([1 if i == axis else s for i, s in enumerate(self.shape)])
+    #             if keepdims else
+    #             tuple([s for i, s in enumerate(self.shape) if i != axis]),
+    #             device=self.device,
+    #         )
+    #     return view, out
+    
+
+    ### Reductions, i.e., sum/max over all element or over given axis
     def reduce_view_out(self, axis, keepdims=False):
         """ Return a view to the array set up for reduction functions and output array. """
         if isinstance(axis, tuple) and not axis:
@@ -607,23 +661,34 @@ class NDArray:
 
         if axis is None:
             view = self.compact().reshape((1,) * (self.ndim - 1) + (prod(self.shape),))
-            #out = NDArray.make((1,) * self.ndim, device=self.device)
             out = NDArray.make((1,), device=self.device)
 
         else:
-            if isinstance(axis, (tuple, list)):
-                assert len(axis) == 1, "Only support reduction over a single axis"
-                axis = axis[0]
+            if not isinstance(axis, (tuple, list)):
+                axis = (axis, )
+
+            out_perm = tuple(a for a in range(self.ndim) if a not in axis)
+            out_shape = tuple(self.shape[a] for a in range(self.ndim) if a not in axis)
 
             view = self.permute(
-                tuple([a for a in range(self.ndim) if a != axis]) + (axis,)
+                out_perm + axis
             )
+
+            num_col = prod(self.shape[a] for a in axis)
+            view = view.compact()
+            view = view.reshape(out_shape + (num_col,))
+
+            if keepdims:
+                out_shape = list(self.shape)
+                for dim in axis:
+                    out_shape[dim] = 1
+                out_shape = tuple(out_shape)
+
             out = NDArray.make(
-                tuple([1 if i == axis else s for i, s in enumerate(self.shape)])
-                if keepdims else
-                tuple([s for i, s in enumerate(self.shape) if i != axis]),
+                out_shape,
                 device=self.device,
             )
+
         return view, out
 
     def sum(self, axis=None, keepdims=False):
@@ -636,7 +701,92 @@ class NDArray:
         self.device.reduce_max(view.compact()._handle, out._handle, view.shape[-1])
         return out
 
+    def flip(self, axis):
+        """
+        Flip this ndarray along the specified axes.
 
+        when axis = 0, aflip[i, j] = a[n-i, j]
+        Parameters
+        ----------
+        axis : None or int or tuple of ints, optional
+            Axis or axes along which to flip over. The default,
+            axis=None, will flip over all of the axes of the input array.
+            If axis is negative it counts from the last to the first axis.
+
+            If axis is a tuple of ints, flipping is performed on all of the axes
+            specified in the tuple.
+
+        Returns
+        -------
+        out : a new array
+
+        Note: compact() before returning.
+        """
+        ### BEGIN YOUR SOLUTION
+        # assumption dimension of the array > 0
+        shape = self.shape
+        ndim = len(shape)
+        assert ndim > 0, 'array with shape () is not supported'
+
+        if axis is None:
+            axis = tuple(range(ndim))
+
+        # make axis to tuple
+        if not isinstance(axis, tuple):
+            axis = (axis, )
+        
+        # make axis increasing
+        axis = tuple(sorted(axis))
+
+        # check axis with bound
+        assert axis[0] >= 0 and axis[-1] < ndim
+
+        ### END YOUR SOLUTION
+        # allocate out
+        out = self.make(shape, device=self.device)
+
+        # call kernel
+        self.device.flip(self.compact()._handle, out._handle, shape, axis)
+
+        return out
+
+    def pad(self, axes):
+        """
+        Pad this ndarray by zeros by the specified amount in `axes`,
+        which lists for _all_ axes the left and right padding amount, e.g.,
+        axes = ( (0, 0), (1, 1), (0, 0)) pads the middle axis with a 0 on the left and right side.
+
+        Parameters
+        ----------
+        axes : list of tuples
+            Each tuple contains two integers representing the padding before and after the axis.
+
+        Returns
+        -------
+        NDArray
+            A new NDArray with the specified padding.
+        """
+        ### BEGIN YOUR SOLUTION
+        assert self.ndim == len(axes)
+
+        # expand shape using axes
+        shape_new = list(self.shape)
+        for dim in range(self.ndim):
+            shape_new[dim] += (axes[dim][0] + axes[dim][1])
+
+        # allocate an array and then fill it with 0
+        arr_new = self.make(shape_new, device=self.device)
+        arr_new.fill(0.0)
+
+        # set value of the newed array
+        indices = []
+        for i in range(self.ndim):
+            indices.append(slice(axes[i][0], shape_new[i] - axes[i][1]))
+
+        arr_new[tuple(indices)] = self
+
+        return arr_new
+        ### END YOUR SOLUTION
 
 def array(a, dtype="float32", device=None):
     """Convenience methods to match numpy a bit more closely."""
@@ -682,4 +832,151 @@ def tanh(a):
 def sum(a, axis=None, keepdims=False):
     return a.sum(axis=axis, keepdims=keepdims)
 
+def max(a, axis=None, keepdims=False):
+    return a.max(axis=axis, keepdims=keepdims)
 
+def flip(a, axes):
+    return a.flip(axes)
+
+def transpose(a, axies=None):
+    if axies is None:
+        axies = list(range(a.shape))
+        axies = tuple(axies[::-1])
+
+    return a.permute(axies)
+
+def power(a: NDArray, b: NDArray):
+    if not isinstance(b, NDArray):
+        return a ** float(b)
+
+    elif (len(b.shape) == 0):
+        return a ** float(b.numpy())
+    
+    else:
+        raise NotImplementedError
+    
+
+def stack(arrs: List[NDArray], axis=0):
+    """
+    Join a sequence of arrays along a new axis.
+
+    The ``axis`` parameter specifies the index of the new axis in the
+    dimensions of the result. For example, if ``axis=0`` it will be the first
+    dimension and if ``axis=-1`` it will be the last dimension.
+
+    Parameters
+    ----------
+    arrays : sequence of NDArray
+        Each array must have the same shape.
+
+    axis : int, optional
+        The axis in the result array along which the input arrays are stacked.
+
+    Returns
+    -------
+    stacked : ndarray
+        The stacked array has one more dimension than the input arrays.
+
+    Examples
+    --------
+    >>> a = NDArray(np.array([1, 2, 3]))
+    >>> b = NDArray(np.array([4, 5, 6]))
+    >>> stack([a, b], axis=0)
+    NDArray([[1, 2, 3],
+             [4, 5, 6]])
+    """
+    # check if all element in arrs are ndarray
+    assert len(arrs) > 0, "inputs shall not empty"
+    for arr in arrs:
+        assert isinstance(arr, NDArray), "all element in arrs must be NDArray"
+
+    # check if all alements have the same size
+    n = len(arrs)
+    for i in range(1, n):
+        assert arrs[i].shape == arrs[0].shape, 'shapes of all arrays must be the same'
+        assert arrs[i].device == arrs[0].device
+
+    # check axis <= dim of matrix
+    ndim = len(arrs[0].shape)
+    assert axis <= ndim
+
+    # when axis == ndim we need to and new dim for arrays
+    if axis == ndim:
+        shape_bdr = list(arrs[0].shape)
+        shape_bdr.append(1)
+        shape_bdr = tuple(shape_bdr)
+        arrs_reshape = []
+        for i in range(n):
+            arr_reshape = reshape(arrs[i].compact(), shape_bdr)
+            arrs_reshape.append(arr_reshape)
+        arrs = arrs_reshape
+
+    # stack the arrays
+    # compute shape of the out array
+    shape_in = arrs[0].shape
+    shape_out = list(shape_in)
+    shape_out[axis] = shape_in[axis] * n
+    shape_out = tuple(shape_out)
+
+    # allocate memory for out array
+    out = NDArray.make(shape_out, device=arrs[0].device)
+
+    # assign each arr to out
+    indices = [slice(0, sz) for sz in shape_out]
+    for i in range(n):
+        arr = arrs[i]
+        start = i * shape_in[axis]
+        end = (i+1) * shape_in[axis]
+        indices[axis] = slice(start, end)
+
+        out[tuple(indices)] = arr
+    
+    return out
+
+
+def split(arr: NDArray, num_chunk: int, axis: int=0):
+    """
+    Split an array into multiple equal_size sub-arrays as views into `arr`.
+
+    Parameters
+    ----------
+    arr : NDArray
+        Array to be divided into sub-arrays.
+    num_chunk : int 
+        the array will be divided
+        into `num_chunk` equal arrays along `axis`.  If such a split is not possible,
+        an error is raised.
+
+    axis : int, optional
+        The axis along which to split, default is 0.
+
+    Returns
+    -------
+    sub-arrays : list of ndarrays
+        A list of sub-arrays as views into `arr`.
+
+    """
+    shape = arr.shape
+
+    # check num_chunk dividable by 
+    size = shape[axis]
+    if size % num_chunk != 0:
+        raise ValueError("num_chunk must be divisible by axis size")
+    
+    # partition arr in axis
+    submat = []
+    indices = [slice(0, sz) for sz in shape]
+    chunksize = size // num_chunk
+    for i in range(num_chunk):
+        indices[axis] = slice(i*chunksize, (i+1)*chunksize)
+        submat.append(arr[tuple(indices)])
+    
+    return submat
+
+
+def pad(arr, pad_width):
+    return arr.pad(pad_width)
+
+
+def sqrt(arr):
+    return power(arr, 0.5)

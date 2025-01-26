@@ -1,7 +1,7 @@
 """The module.
 """
 from typing import List, Callable, Any
-from needle.autograd import Tensor
+from needle.autograd import Tensor, cpu
 from needle import ops
 import needle.init as init
 import numpy as np
@@ -69,6 +69,18 @@ class Module:
         self.training = True
         for m in self._children():
             m.training = True
+    
+    @property
+    def device(self):
+        ''' get device of the model, and check if all its parameter belongs to the same device
+        '''
+        devices = [param.device if param.device is not None else cpu() for param in self.parameters()]
+
+        for i in range(1, len(devices)):
+            if devices[i] != devices[0]:
+                raise ValueError(f"All parameters must be on the same device, but found devices: {devices}")
+
+        return devices[0]
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -93,11 +105,18 @@ class Linear(Module):
                                                    device=device, dtype=dtype, requires_grad=True))
         
         # the learnable bias of shape (out_features).
+        # self.bias = Parameter(
+        #     ops.reshape(
+        #         init.kaiming_uniform(self.out_features, 1, 
+        #                                              device=device, dtype=dtype, requires_grad=True
+        #         ),
+        #         (1, self.out_features)
+        #     )
+        # )
         self.bias = Parameter(
-            ops.reshape(
-                init.kaiming_uniform(self.out_features, 1, 
-                                                     device=device, dtype=dtype, requires_grad=True),
-                (1, self.out_features)
+            init.kaiming_uniform(self.out_features, 1, 
+                                 device=device, dtype=dtype, requires_grad=True,
+                                 shape=(1, self.out_features)
             )
         )
         ### END YOUR SOLUTION
@@ -187,7 +206,7 @@ class BatchNorm1d(Module):
         self.eps = eps
         self.momentum = momentum
         ### BEGIN YOUR SOLUTION
-        self.device = device
+        # self.device = device
         self.dtype = dtype
         self.weight = Parameter(init.ones(dim, device=device, dtype=dtype, requires_grad=True))
         self.bias = Parameter(init.zeros(dim, device=device, dtype=dtype, requires_grad=True))
@@ -250,6 +269,16 @@ class BatchNorm1d(Module):
         return out
         ### END YOUR SOLUTION
 
+class BatchNorm2d(BatchNorm1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, x: Tensor):
+        # nchw -> nhcw -> nhwc
+        s = x.shape
+        _x = x.transpose((1, 2)).transpose((2, 3)).reshape((s[0] * s[2] * s[3], s[1]))
+        y = super().forward(_x).reshape((s[0], s[2], s[3], s[1]))
+        return y.transpose((2,3)).transpose((1,2))
 
 
 class LayerNorm1d(Module):
@@ -261,7 +290,7 @@ class LayerNorm1d(Module):
         super().__init__()
         self.dim = dim
         ### BEGIN YOUR SOLUTION
-        self.device = device
+        # self.device = device
         self.dtype = dtype
         self.weight = Parameter(init.ones(dim, device=device, dtype=dtype, requires_grad=True))
         self.bias = Parameter(init.zeros(dim, device=device, dtype=dtype, requires_grad=True))

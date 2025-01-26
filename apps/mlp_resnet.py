@@ -131,11 +131,12 @@ def epoch(dataloader, model, opt=None):
 
 # I use numpy must change it to array_api when cuda enabled
 def count_error(logits: nn.Tensor, y_true: nn.Tensor) -> np.integer:
-    logits_data = logits.realize_cached_data()
-    y_data = y_true.realize_cached_data()
+    logits_data = logits.realize_cached_data().numpy()
+    y_data = y_true.realize_cached_data().numpy()
 
     # check y_data is integer
-    assert np.issubdtype(y_data.dtype, np.integer), "y_data must be an integer array"
+    if not np.issubdtype(y_data.dtype, np.integer):
+        y_data = y_data.astype('int64')
 
     # get the predicted class
     pred = np.argmax(logits_data, axis=1)

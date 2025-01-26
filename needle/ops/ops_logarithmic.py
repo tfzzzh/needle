@@ -5,7 +5,7 @@ from ..autograd import TensorTuple, TensorTupleOp
 
 from .ops_mathematic import *
 
-import numpy as array_api
+from ..backend_selection import array_api, BACKEND 
 
 class LogSoftmax(TensorOp):
     def compute(self, Z):
@@ -13,15 +13,20 @@ class LogSoftmax(TensorOp):
         Applies a numerically stable logsoftmax function to the input by subtracting off the maximum elements. 
         Assume the input NDArray is 2 dimensional and we are doing softmax over `axis=1`.
 
-        {LogSoftmax}(z) = log ({exp(z_i - max z)}/{sum_{i} exp(z_i - max z)})
+        \begin{equation}
+        \text{LogSoftmax}(z) = \log \left(\frac{\exp(z_i - \max z)}{\sum_{i}\exp(z_i - \max z)}\right) = z - \text{LogSumExp}(z)
+        \end{equation}
         '''
         ### BEGIN YOUR SOLUTION
         assert (len(Z.shape) == 2)
         z_max = array_api.max(Z, axis=1, keepdims=True)
+        z_max = array_api.broadcast_to(z_max, Z.shape)
+
         z = Z - z_max
         z_exp = array_api.exp(z)
         z_sum = array_api.sum(z_exp, axis=1, keepdims=True)
         z_sum = array_api.log(z_sum)
+        z_sum = array_api.broadcast_to(z_sum, Z.shape)
     
         return  z - z_sum
         ### END YOUR SOLUTION
@@ -54,26 +59,30 @@ def stable_smt(Z: Tensor, axes: Tuple[int]) -> Tensor:
 
 
 class LogSumExp(TensorOp):
-    '''
-    use stablized formulation: 
-    LogSumExp(z) = log (sum_{i} exp (z_i - max{z})) + max{z}
-    '''
-    def __init__(self, axes: Optional[tuple] = None):
-        self.axes = axes
+    def __init__(self, axes: Union[Tuple, None, int] = None):
+        if axes is None or isinstance(axes, Tuple):
+            self.axes = axes
+
+        else:
+            self.axes = (axes, )
 
     def compute(self, Z):
         ### BEGIN YOUR SOLUTION
         # assumption: axes not out of range
         # compute max for each row
         z_max = array_api.max(Z, axis=self.axes, keepdims=True)
+        # z_max = array_api.broadcast_to(z_max, Z.shape)
 
         # compute exp with max removed
-        z_exp = array_api.exp(Z - z_max)
+        z_exp = array_api.exp(Z - array_api.broadcast_to(z_max, Z.shape))
 
         # compute log sum of exp over the axes
         z_sum = array_api.log(array_api.sum(z_exp, axis=self.axes))
 
-        return z_sum + array_api.reshape(z_max, z_sum.shape)
+        if BACKEND == 'np':
+            return z_sum + array_api.reshape(z_max, z_sum.shape)
+        else:
+            return z_sum + array_api.reshape(z_max.compact(), z_sum.shape)
 
         ### END YOUR SOLUTION
 

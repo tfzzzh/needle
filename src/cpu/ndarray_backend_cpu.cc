@@ -536,6 +536,39 @@ void ReduceSum(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
   /// END SOLUTION
 }
 
+// hw4
+/*
+def flip(a, out, shape, axis):
+    out.array[:] = np.flip(a.array[:].reshape(shape), axis).reshape(-1)
+*/
+std::vector<int32_t> shape2stride(const std::vector<int32_t>& shape) {
+  std::vector<int32_t> strides(shape.size(), 1);
+  for (int i=shape.size()-1; i >= 1; --i) {
+    strides[i-1] = shape[i] * strides[i];
+  }
+  return strides;
+}
+
+void Flip(const AlignedArray & a, AlignedArray * out,  std::vector<int32_t> shape, std::vector<int32_t> axis) {
+  assert (a.size == out->size);
+  assert (a.size == array_size(shape));
+
+  // compute shape to stride
+  std::vector<int32_t> strides = shape2stride(shape);
+
+  std::vector<int32_t> index(shape.size(), 0);
+  for (size_t i = 0; i < out->size; ++i) {
+    std::vector<int32_t> index_flip = index;
+    for (auto dim : axis) {
+      index_flip[dim] = shape[dim] - index[dim] - 1;
+      assert (index_flip[dim] >= 0);
+    }
+
+    out->ptr[i] = a.ptr[get_linear_index(index_flip, strides, 0)];
+    incc_index(shape, index);
+  }
+}
+
 }  // namespace cpu
 }  // namespace needle
 
@@ -596,4 +629,5 @@ PYBIND11_MODULE(ndarray_backend_cpu, m) {
 
   m.def("reduce_max", ReduceMax);
   m.def("reduce_sum", ReduceSum);
+  m.def("flip", Flip);
 }

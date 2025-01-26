@@ -16,7 +16,11 @@ class Optimizer:
             p.grad = None
 
 def array_scatter(x, dtype):
-    return ndl.array_api.array(x, dtype)
+    if ndl.BACKEND == 'np':
+        return ndl.array_api.array(x, dtype)
+    else:
+        assert ndl.BACKEND == 'nd'
+        return x
 
 
 def check_params(params: List[ndl.nn.Parameter]):
@@ -80,6 +84,10 @@ class SGD(Optimizer):
 
             # update parameters
             x -= self.lr * dir
+
+            # change linked array of the tensor
+            if ndl.BACKEND == 'nd':
+                param.cached_data = x
 
         assert len(self.params) == len(self.u)
         ### END YOUR SOLUTION
@@ -161,6 +169,10 @@ class Adam(Optimizer):
 
             # update parameter
             x -= self.lr * dir
+
+            # change linked array of the tensor
+            if ndl.BACKEND == 'nd':
+                param.cached_data = x
 
             # check parameter type
             assert x.dtype == self.dtype

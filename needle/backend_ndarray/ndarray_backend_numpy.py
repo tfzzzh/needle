@@ -108,6 +108,8 @@ def ewise_tanh(a, out):
 def matmul(a, b, out, m, n, p):
     out.array[:] = (a.array.reshape(m, n) @ b.array.reshape(n, p)).reshape(-1)
 
+def matmul_tensor(a, b, out, shape_a, shape_b):
+    out.array[:] = (a.array.reshape(*shape_a) @ b.array.reshape(*shape_b)).reshape(-1)
 
 def reduce_max(a, out, reduce_size):
     out.array[:] = a.array[:].reshape(-1, reduce_size).max(axis=1)
@@ -115,3 +117,6 @@ def reduce_max(a, out, reduce_size):
 
 def reduce_sum(a, out, reduce_size):
     out.array[:] = a.array[:].reshape(-1, reduce_size).sum(axis=1)
+
+def flip(a, out, shape, axis):
+    out.array[:] = np.flip(a.array[:].reshape(shape), axis).reshape(-1)

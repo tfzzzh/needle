@@ -81,6 +81,15 @@ void Fill(CudaArray* out, scalar_t val) {
 ////////////////////////////////////////////////////////////////////////////////
 
 // Untility function to convert contiguous index i to memory location from strides
+std::vector<int32_t> shape2stride(const std::vector<int32_t>& shape) {
+  std::vector<int32_t> strides(shape.size(), 1);
+  for (int i=shape.size()-1; i >= 1; --i) {
+    strides[i-1] = shape[i] * strides[i];
+  }
+  return strides;
+}
+
+
 __device__ CudaVec compact_index_to_sub(size_t index, const CudaVec & shape) {
   CudaVec subs;
   subs.size = shape.size;
@@ -602,6 +611,44 @@ void ReduceSum(const CudaArray& a, CudaArray* out, size_t reduce_size) {
   /// END SOLUTION
 }
 
+/*
+def flip(a, out, shape, axis):
+    out.array[:] = np.flip(a.array[:].reshape(shape), axis).reshape(-1)
+*/
+__global__ void flip_kernel(const scalar_t * a, scalar_t * out, size_t size, CudaVec shape, CudaVec strides, CudaVec axis) {
+  size_t gid = blockDim.x * blockIdx.x + threadIdx.x;
+  if (gid >= size) return;
+
+  // get index from gid
+  auto sub = compact_index_to_sub(gid, shape);
+
+  // get reflesive index
+  for (size_t i=0; i < axis.size; ++i) {
+    auto dim = axis.data[i];
+    sub.data[dim] = shape.data[dim] - sub.data[dim] - 1;
+  }
+
+  // compute index of reflesive subs
+  size_t index = sub_to_index(sub, strides, 0);
+
+  // fill data 
+  out[gid] = a[index];
+}
+
+void Flip(const CudaArray& a, CudaArray* out, std::vector<int32_t> shape, std::vector<int32_t> axis) {
+  // get strides from shape
+  auto strides = shape2stride(shape);
+  CudaDims dim = CudaOneDim(out->size);
+  flip_kernel<<<dim.grid, dim.block>>>(a.ptr, out->ptr, out->size, 
+    VecToCuda(shape), VecToCuda(strides), VecToCuda(axis));
+
+  // Check for any errors during kernel launch
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(cudaGetErrorString(err));
+  }
+}
+
 }  // namespace cuda
 }  // namespace needle
 
@@ -671,4 +718,5 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
 
   m.def("reduce_max", ReduceMax);
   m.def("reduce_sum", ReduceSum);
+  m.def("flip", Flip);
 }

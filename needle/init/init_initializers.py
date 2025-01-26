@@ -30,14 +30,19 @@ def xavier_normal(fan_in, fan_out, gain=1.0, **kwargs):
     ### END YOUR SOLUTION
 
 def kaiming_uniform(fan_in, fan_out, nonlinearity="relu", **kwargs):
+    '''
+    For conv fan_in = cin * kernelsize * kernelsize
+    fan_out = cout * kernelsize * kernelsize
+    '''
     assert nonlinearity == "relu", "Only relu supported currently"
     ### BEGIN YOUR SOLUTION
     device = kwargs['device'] if 'device' in kwargs else None
     dtype = kwargs['dtype'] if 'dtype' in kwargs else "float32"
     requires_grad = kwargs['requires_grad'] if 'requires_grad' in kwargs else False
+    shape = kwargs['shape'] if 'shape' in kwargs else (fan_in, fan_out)
 
     a = math.sqrt(6 / fan_in)
-    x = rand(fan_in, fan_out, low=-a, high=a, device=device, dtype=dtype, requires_grad=requires_grad)
+    x = rand(*shape, low=-a, high=a, device=device, dtype=dtype, requires_grad=requires_grad)
     return x
     ### END YOUR SOLUTION
 
