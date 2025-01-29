@@ -80,14 +80,22 @@ class LanguageModel(nn.Module):
         super(LanguageModel, self).__init__()
         ### BEGIN YOUR SOLUTION
         self.hidden_size = hidden_size
+        self.embedding_size = embedding_size
         self.embd = nn.Embedding(output_size, embedding_size, device=device, dtype=dtype)
         
+        self.seq_model = seq_model
         if seq_model == 'rnn':
             self.rnn = nn.RNN(embedding_size, hidden_size,num_layers, device=device, dtype=dtype)
-        else:
+        elif seq_model == 'lstm':
             self.rnn = nn.LSTM(embedding_size, hidden_size,num_layers, device=device, dtype=dtype)
+        elif seq_model == 'transformer':
+            self.rnn = nn.Transformer(embedding_size, hidden_size, num_layers, device=device, dtype=dtype, sequence_len=seq_len)
+            # self.proj = nn.Linear(embedding_size, hidden_size, device=device, dtype=dtype)
 
-        self.linear = nn.Linear(hidden_size, output_size, device=device, dtype=dtype)
+        if seq_model != 'transformer':
+            self.linear = nn.Linear(hidden_size, output_size, device=device, dtype=dtype)
+        else:
+            self.linear = nn.Linear(embedding_size, output_size, device=device, dtype=dtype)
         ### END YOUR SOLUTION
 
     def forward(self, x, h=None):
@@ -107,7 +115,11 @@ class LanguageModel(nn.Module):
         seqlen, bs = x.shape
         out = self.embd(x)
         out, h_n = self.rnn(out, h) # [seq_len, bs, hidden], (layers, bs, hidden)
-        out = ndl.ops.reshape(out, (seqlen * bs, self.hidden_size))
+        
+        if self.seq_model != 'transformer':
+            out = ndl.ops.reshape(out, (seqlen * bs, self.hidden_size))
+        else:
+            out = ndl.ops.reshape(out, (seqlen * bs, self.embedding_size))
         out = self.linear(out)
 
         return out, h_n
