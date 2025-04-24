@@ -113,18 +113,22 @@ class Linear(Module):
         #         (1, self.out_features)
         #     )
         # )
-        self.bias = Parameter(
-            init.kaiming_uniform(self.out_features, 1, 
-                                 device=device, dtype=dtype, requires_grad=True,
-                                 shape=(1, self.out_features)
+
+        self.use_bias = bias
+        if self.use_bias:
+            self.bias = Parameter(
+                init.kaiming_uniform(self.out_features, 1, 
+                                    device=device, dtype=dtype, requires_grad=True,
+                                    shape=(1, self.out_features)
+                )
             )
-        )
         ### END YOUR SOLUTION
 
     def forward(self, X: Tensor) -> Tensor:
         ### BEGIN YOUR SOLUTION
         out = ops.matmul(X, self.weight)
-        out = out + (ops.broadcast_to(self.bias, out.shape))
+        if self.use_bias:
+            out = out + (ops.broadcast_to(self.bias, out.shape))
         return out
         ### END YOUR SOLUTION
 

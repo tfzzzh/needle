@@ -13,6 +13,10 @@ Install the package in editable mode:
 ```
 python setup.py develop
 ```
+### Download Cifa and Ptb Dataset
+```sh
+python tools/download_data.py 
+```
 ### Run Tests
 To run the tests, use:
 ```
